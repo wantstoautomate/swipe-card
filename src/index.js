@@ -60,6 +60,8 @@ class SwipeCard extends LitElement {
     this._config = config;
     this._parameters = deepcopy(this._config.parameters) || {};
     this._cards = [];
+    this._activeCardRules = config.active_card || [];
+    this._lastActiveIndex = null;
     if (window.ResizeObserver) {
       this._ro = new ResizeObserver(() => {
         if (this.swiper) {
@@ -80,6 +82,43 @@ class SwipeCard extends LitElement {
     this._cards.forEach((element) => {
       element.hass = this._hass;
     });
+
+    this._maybeNavigateToActiveCard(hass);
+  }
+
+  // Reactive navigation: if `active_card` rules are configured, slide to
+  // whichever rule's entity currently matches, or to `default_card` (falling
+  // back to `start_card`, then the first card) when none match. Runs on
+  // every hass update - same place hass is already forwarded to child cards,
+  // so it needs no extra lifecycle wiring and works regardless of whether
+  // this component's own render() happens to run on a given tick.
+  _maybeNavigateToActiveCard(hass) {
+    if (!hass || !this.swiper || !this._activeCardRules.length) {
+      return;
+    }
+    let targetIndex = this._defaultCardIndex();
+    for (const rule of this._activeCardRules) {
+      const stateObj = hass.states[rule.entity];
+      const wantState = rule.state !== undefined ? rule.state : "on";
+      if (stateObj && stateObj.state === wantState) {
+        targetIndex = rule.index - 1;
+        break;
+      }
+    }
+    if (targetIndex !== this._lastActiveIndex) {
+      this._lastActiveIndex = targetIndex;
+      this.swiper.slideTo(targetIndex);
+    }
+  }
+
+  _defaultCardIndex() {
+    if ("default_card" in this._config) {
+      return this._config.default_card - 1;
+    }
+    if ("start_card" in this._config) {
+      return this._config.start_card - 1;
+    }
+    return 0;
   }
 
   connectedCallback() {
@@ -169,10 +208,38 @@ class SwipeCard extends LitElement {
       this._parameters.initialSlide = this._config.start_card - 1;
     }
 
+    // Swiper's own `loop: true` wraps around by cloneNode()-ing slide DOM
+    // for padding. That breaks when a slide's content is a custom element
+    // (as virtually all Lovelace cards are): hass/config are plain JS
+    // properties, not attributes, so cloneNode() never copies them, and the
+    // resulting clone is uninitialized. Swiper's own loop-repositioning
+    // logic then fails to measure it correctly and gets permanently stuck
+    // at the last real slide - see https://github.com/bramkragten/swipe-card/issues/67
+    // for a report of the same underlying symptom via mod-card.
+    //
+    // Rather than passing `loop` through to Swiper's constructor, implement
+    // wraparound ourselves: it never touches slide DOM, so every slide stays
+    // a normal, fully-initialized card element regardless of position.
+    this._manualLoop = this._parameters.loop === true;
+    const swiperParams = { ...this._parameters };
+    if (this._manualLoop) {
+      delete swiperParams.loop;
+    }
+
     this.swiper = new Swiper(
       this.shadowRoot.querySelector(".swiper-container"),
-      this._parameters
+      swiperParams
     );
+
+    if (this._manualLoop) {
+      this._patchManualLoop(this.swiper);
+    }
+
+    // hass may have already arrived before the swiper instance existed;
+    // run one navigation pass now that it's ready.
+    if (this._hass) {
+      this._maybeNavigateToActiveCard(this._hass);
+    }
 
     if (this._config.reset_after) {
       this.swiper
@@ -186,6 +253,60 @@ class SwipeCard extends LitElement {
           this._setResetTimer();
         });
     }
+  }
+
+  // Manual wraparound for `parameters.loop: true` (see _initialLoad for why
+  // Swiper's own loop mode isn't used). Covers both programmatic navigation
+  // (slideNext/slidePrev - used by nav buttons and reset_after) and raw
+  // touch/mouse drag gestures past the first/last slide.
+  _patchManualLoop(swiper) {
+    const origNext = swiper.slideNext.bind(swiper);
+    const origPrev = swiper.slidePrev.bind(swiper);
+    swiper.slideNext = (...args) => {
+      if (swiper.isEnd) {
+        swiper.slideTo(0);
+      } else {
+        origNext(...args);
+      }
+    };
+    swiper.slidePrev = (...args) => {
+      if (swiper.isBeginning) {
+        swiper.slideTo(swiper.slides.length - 1);
+      } else {
+        origPrev(...args);
+      }
+    };
+
+    let boundaryAtTouchStart = null;
+    let startX = null;
+    swiper.on("touchStart", (s, event) => {
+      boundaryAtTouchStart = s.isEnd
+        ? "end"
+        : s.isBeginning
+        ? "beginning"
+        : null;
+      startX = event.touches ? event.touches[0].clientX : event.clientX;
+    });
+    swiper.on("touchEnd", (s, event) => {
+      if (!boundaryAtTouchStart) {
+        return;
+      }
+      const endX = event.changedTouches
+        ? event.changedTouches[0].clientX
+        : event.clientX;
+      const dx = endX - startX;
+      const THRESHOLD = 30; // px, avoid triggering on taps/jitter
+      if (boundaryAtTouchStart === "end" && dx < -THRESHOLD && s.isEnd) {
+        s.slideTo(0);
+      } else if (
+        boundaryAtTouchStart === "beginning" &&
+        dx > THRESHOLD &&
+        s.isBeginning
+      ) {
+        s.slideTo(s.slides.length - 1);
+      }
+      boundaryAtTouchStart = null;
+    });
   }
 
   _setResetTimer() {
