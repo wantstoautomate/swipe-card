@@ -48,11 +48,14 @@ And add a card with type `custom:swipe-card`:
 
 `loop: true` no longer passes through to Swiper's own loop implementation. Swiper wraps around by
 `cloneNode()`-ing slide DOM, which doesn't work with Lovelace cards: `hass`/`config` are set as plain JS
-properties (not attributes), so the cloned slides come out uninitialized and Swiper's own loop-repositioning
-logic gets permanently stuck at the last slide (see [#67](https://github.com/bramkragten/swipe-card/issues/67)
-for a report of the same underlying symptom via mod-card). `loop: true` now triggers a manual wraparound
-implementation instead - swiping or navigating past the last card goes to the first, and vice versa - and every
-slide stays a normal, fully-functional card regardless of position.
+properties (not attributes), so the cloned slides come out uninitialized (see
+[#67](https://github.com/bramkragten/swipe-card/issues/67) for a report of the same underlying symptom via
+mod-card). `loop: true` now adds two extra padding slides instead - real, fully-initialized clones of the
+first/last card built through the same card-creation pipeline as every other slide - and silently jumps to the
+equivalent real slide the instant a transition into one of them finishes. Swiper always has a genuine slide to
+drag into in both directions, so swiping feels like an ordinary transition throughout (no resistance/rubber-band
+at the boundary giving away that it's about to wrap), and `slideNext()`/`slidePrev()` (nav buttons,
+`reset_after`) work natively with no special-casing.
 
 ### `active_card`
 

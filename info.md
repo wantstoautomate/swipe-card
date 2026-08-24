@@ -28,9 +28,10 @@ Add a card with type `custom:swipe-card`:
 
 ### `parameters.loop`
 
-`loop: true` uses a manual wraparound implementation rather than Swiper's own clone-based loop mode, which
-doesn't work reliably with real Lovelace cards as slide content. Swiping or navigating past the last card goes
-to the first, and vice versa.
+`loop: true` adds two extra padding slides - real, fully-initialized clones of the first/last card - rather than
+using Swiper's own clone-based loop mode, which doesn't work reliably with real Lovelace cards as slide content.
+Swiper always has a genuine slide to drag into at both boundaries, so swiping feels like an ordinary transition
+throughout, with no resistance "you've hit the edge" tell before it wraps.
 
 ### `active_card`
 

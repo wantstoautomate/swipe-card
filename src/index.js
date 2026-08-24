@@ -67,6 +67,10 @@ class SwipeCard extends LitElement {
     this._cards = [];
     this._activeCardRules = config.active_card || [];
     this._lastActiveIndex = null;
+    // See _createCards/_initialLoad for why loop:true doesn't pass through
+    // to Swiper directly - this flag needs to be known before cards are
+    // built, since looping adds two extra padding slides.
+    this._loopEnabled = this._parameters.loop === true;
     if (window.ResizeObserver) {
       this._ro = new ResizeObserver(() => {
         if (this.swiper) {
@@ -101,12 +105,15 @@ class SwipeCard extends LitElement {
     if (!hass || !this.swiper || !this._activeCardRules.length) {
       return;
     }
-    let targetIndex = this._defaultCardIndex();
+    // +1 when loop padding is in play: index 0 is the wraparound clone of
+    // the last card, so real card 1 actually lives at swiper index 1.
+    const offset = this._loopEnabled ? 1 : 0;
+    let targetIndex = this._defaultCardIndex() + offset;
     for (const rule of this._activeCardRules) {
       const stateObj = hass.states[rule.entity];
       const wantState = rule.state !== undefined ? rule.state : "on";
       if (stateObj && stateObj.state === wantState) {
-        targetIndex = rule.index - 1;
+        targetIndex = rule.index - 1 + offset;
         break;
       }
     }
@@ -210,34 +217,53 @@ class SwipeCard extends LitElement {
     }
 
     if ("start_card" in this._config) {
-      this._parameters.initialSlide = this._config.start_card - 1;
+      this._parameters.initialSlide =
+        this._config.start_card - 1 + (this._loopEnabled ? 1 : 0);
     }
 
     // Swiper's own `loop: true` wraps around by cloneNode()-ing slide DOM
     // for padding. That breaks when a slide's content is a custom element
     // (as virtually all Lovelace cards are): hass/config are plain JS
     // properties, not attributes, so cloneNode() never copies them, and the
-    // resulting clone is uninitialized. Swiper's own loop-repositioning
-    // logic then fails to measure it correctly and gets permanently stuck
-    // at the last real slide - see https://github.com/bramkragten/swipe-card/issues/67
-    // for a report of the same underlying symptom via mod-card.
+    // resulting clone is uninitialized. Dragging past the boundary then hits
+    // Swiper's own non-loop resistance/overshoot logic instead (since it
+    // never actually enters loop mode with a broken clone), which can land
+    // on the wrong slide entirely - see
+    // https://github.com/bramkragten/swipe-card/issues/67 for a report of
+    // the same underlying clone-initialization symptom via mod-card.
     //
-    // Rather than passing `loop` through to Swiper's constructor, implement
-    // wraparound ourselves: it never touches slide DOM, so every slide stays
-    // a normal, fully-initialized card element regardless of position.
-    this._manualLoop = this._parameters.loop === true;
+    // Rather than passing `loop` through to Swiper's constructor at all,
+    // _createCards() adds two extra padding slides - real, fully-initialized
+    // clones of the first/last card, built through the same
+    // _createCardElement() pipeline as every other slide - and this handler
+    // silently (0ms) teleports to the equivalent real slide the instant a
+    // transition into one of them finishes. Swiper always has a genuine
+    // slide to drag into in both directions, so there's no resistance zone
+    // and no boundary math to get wrong: dragging feels like an ordinary
+    // slide transition throughout, not a special-cased "you hit the edge"
+    // gesture, and slideNext()/slidePrev() (nav buttons, reset_after) work
+    // completely natively with no patching needed.
     const swiperParams = { ...this._parameters };
-    if (this._manualLoop) {
-      delete swiperParams.loop;
-    }
+    delete swiperParams.loop;
 
     this.swiper = new Swiper(
       this.shadowRoot.querySelector(".swiper"),
       swiperParams
     );
 
-    if (this._manualLoop) {
-      this._patchManualLoop(this.swiper);
+    if (this._loopEnabled) {
+      // _cards.length read fresh on each firing, not captured here: card
+      // creation is async and _initialLoad doesn't wait on it (matching the
+      // rest of this method - cards can still be resolving when this runs),
+      // so the padding slides may not exist in _cards yet at this point.
+      this.swiper.on("slideChangeTransitionEnd", (s) => {
+        const lastRealIndex = this._cards.length - 2;
+        if (s.activeIndex === 0) {
+          s.slideTo(lastRealIndex, 0);
+        } else if (s.activeIndex === this._cards.length - 1) {
+          s.slideTo(1, 0);
+        }
+      });
     }
 
     // hass may have already arrived before the swiper instance existed;
@@ -260,60 +286,6 @@ class SwipeCard extends LitElement {
     }
   }
 
-  // Manual wraparound for `parameters.loop: true` (see _initialLoad for why
-  // Swiper's own loop mode isn't used). Covers both programmatic navigation
-  // (slideNext/slidePrev - used by nav buttons and reset_after) and raw
-  // touch/mouse drag gestures past the first/last slide.
-  _patchManualLoop(swiper) {
-    const origNext = swiper.slideNext.bind(swiper);
-    const origPrev = swiper.slidePrev.bind(swiper);
-    swiper.slideNext = (...args) => {
-      if (swiper.isEnd) {
-        swiper.slideTo(0);
-      } else {
-        origNext(...args);
-      }
-    };
-    swiper.slidePrev = (...args) => {
-      if (swiper.isBeginning) {
-        swiper.slideTo(swiper.slides.length - 1);
-      } else {
-        origPrev(...args);
-      }
-    };
-
-    let boundaryAtTouchStart = null;
-    let startX = null;
-    swiper.on("touchStart", (s, event) => {
-      boundaryAtTouchStart = s.isEnd
-        ? "end"
-        : s.isBeginning
-        ? "beginning"
-        : null;
-      startX = event.touches ? event.touches[0].clientX : event.clientX;
-    });
-    swiper.on("touchEnd", (s, event) => {
-      if (!boundaryAtTouchStart) {
-        return;
-      }
-      const endX = event.changedTouches
-        ? event.changedTouches[0].clientX
-        : event.clientX;
-      const dx = endX - startX;
-      const THRESHOLD = 30; // px, avoid triggering on taps/jitter
-      if (boundaryAtTouchStart === "end" && dx < -THRESHOLD && s.isEnd) {
-        s.slideTo(0);
-      } else if (
-        boundaryAtTouchStart === "beginning" &&
-        dx > THRESHOLD &&
-        s.isBeginning
-      ) {
-        s.slideTo(s.slides.length - 1);
-      }
-      boundaryAtTouchStart = null;
-    });
-  }
-
   _setResetTimer() {
     if (this._resetTimer) {
       window.clearTimeout(this._resetTimer);
@@ -328,7 +300,26 @@ class SwipeCard extends LitElement {
       this._config.cards.map((config) => this._createCardElement(config))
     );
 
-    this._cards = await this._cardPromises;
+    const realCards = await this._cardPromises;
+
+    if (this._loopEnabled && realCards.length > 0) {
+      // Real, fully-initialized clones (built through the same
+      // _createCardElement() pipeline as every other slide, not
+      // Swiper's own cloneNode()-based loop padding) of the last/first
+      // card, so there's always a genuine slide to drag into at both
+      // boundaries. See _initialLoad for the teleport-on-arrival logic
+      // that swaps these back to the real equivalent slide.
+      const [wrapStart, wrapEnd] = await Promise.all([
+        this._createCardElement(
+          this._config.cards[this._config.cards.length - 1]
+        ),
+        this._createCardElement(this._config.cards[0]),
+      ]);
+      this._cards = [wrapStart, ...realCards, wrapEnd];
+    } else {
+      this._cards = realCards;
+    }
+
     if (this._ro) {
       this._cards.forEach((card) => {
         this._ro.observe(card);
@@ -402,7 +393,7 @@ class SwipeCard extends LitElement {
 
 customElements.define("swipe-card", SwipeCard);
 console.info(
-  "%c   SWIPE-CARD  \n%c Version 6.0.0 ",
+  "%c   SWIPE-CARD  \n%c Version 6.0.1 ",
   "color: orange; font-weight: bold; background: black",
   "color: white; font-weight: bold; background: dimgray"
 );
