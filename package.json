@@ -11,7 +11,7 @@
     "rollup": "rollup -c"
   },
   "devDependencies": {
-    "@rollup/plugin-node-resolve": "^13.0.0",
+    "@rollup/plugin-node-resolve": "^15.2.3",
     "eslint": "^7.26.0",
     "eslint-config-prettier": "^8.3.0",
     "eslint-plugin-import": "^2.22.1",
@@ -27,6 +27,6 @@
     "custom-card-helpers": "^1.7.0",
     "deep-clone-simple": "^1.1.1",
     "lit": "^2.0.0-rc.2",
-    "swiper": "^6.5.9"
+    "swiper": "^14.1.0"
   }
 }

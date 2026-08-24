@@ -1,7 +1,12 @@
 import { LitElement, html, css, unsafeCSS } from "lit";
 
-import Swiper from "swiper/swiper-bundle.esm.js";
-import swiperStyle from "swiper/swiper-bundle.css";
+// eslint-plugin-import's resolver doesn't understand package.json "exports"
+// maps (Swiper 9+ ships one), so it can't see these subpaths even though
+// rollup resolves them correctly at build time.
+// eslint-disable-next-line import/no-unresolved
+import Swiper from "swiper/bundle";
+// eslint-disable-next-line import/no-unresolved
+import swiperStyle from "swiper/css/bundle";
 import deepcopy from "deep-clone-simple";
 
 const HELPERS = window.loadCardHelpers ? window.loadCardHelpers() : undefined;
@@ -147,7 +152,7 @@ class SwipeCard extends LitElement {
 
     return html`
       <div
-        class="swiper-container"
+        class="swiper"
         dir="${this._hass.translationMetadata.translations[
           this._hass.selectedLanguage || this._hass.language
         ].isRTL || false
@@ -227,7 +232,7 @@ class SwipeCard extends LitElement {
     }
 
     this.swiper = new Swiper(
-      this.shadowRoot.querySelector(".swiper-container"),
+      this.shadowRoot.querySelector(".swiper"),
       swiperParams
     );
 
@@ -397,7 +402,7 @@ class SwipeCard extends LitElement {
 
 customElements.define("swipe-card", SwipeCard);
 console.info(
-  "%c   SWIPE-CARD  \n%c Version 5.0.0 ",
+  "%c   SWIPE-CARD  \n%c Version 6.0.0 ",
   "color: orange; font-weight: bold; background: black",
   "color: white; font-weight: bold; background: dimgray"
 );

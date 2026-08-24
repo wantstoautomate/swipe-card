@@ -1,5 +1,6 @@
-## Unreleased
+## 6.0.0
 
+- Update Swiper from 6.5.9 to 14.1.0
 - Fix `parameters.loop: true` getting permanently stuck at the last slide with real (non-plain) card content, by implementing wraparound manually instead of relying on Swiper's clone-based loop mode (#67)
 - Add `active_card` / `default_card` to reactively navigate the swiper based on entity state, instead of only a static `start_card`
 

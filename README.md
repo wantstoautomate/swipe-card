@@ -1,31 +1,26 @@
 # Lovelace swipe card
 
-A Lovelace card that uses [swiper](http://idangero.us/swiper/) to create a touch slider that lets you flick through multiple cards.
-You can use (almost?) all options of swiper, these can be found [here](http://idangero.us/swiper/api/).
+A Lovelace card that uses [swiper](https://swiperjs.com/) to create a touch slider that lets you flick through multiple cards.
+You can use (almost?) all options of swiper, these can be found [here](https://swiperjs.com/swiper-api).
+
+This is a maintained fork of [bramkragten/swipe-card](https://github.com/bramkragten/swipe-card) - see
+[changelog.md](changelog.md) for what's different.
 
 ## Installation:
 
-You have 2 options, hosted or self hosted (manual). The first option needs internet and will update itself.
+### HACS (recommended)
 
-# Hosted:
+Add this repository as a [custom repository](https://hacs.xyz/docs/faq/custom_repositories/) in HACS
+(category: Dashboard), then install "Swipe Card" from HACS as normal.
 
-Add the following to resources in your lovelace config:
+### Manual
 
-```yaml
-resources:
-  - url: https://cdn.jsdelivr.net/gh/bramkragten/custom-ui@master/swipe-card/swipe-card.js
-    type: module
-```
-
-# Manual:
-
-Download the [swipe-card.js](https://raw.githubusercontent.com/bramkragten/custom-ui/master/swipe-card/swipe-card.js) to `/config/www/custom-lovelace/swipe-card/`. (or an other folder in `/config/www/`)
-
-Add the following to resources in your lovelace config:
+Download `dist/swipe-card.js` from the [latest release](https://github.com/wantstoautomate/swipe-card/releases)
+to `/config/www/swipe-card/`. Add the following to resources in your lovelace config:
 
 ```yaml
 resources:
-  - url: /local/custom-lovelace/swipe-card/swipe-card.js
+  - url: /local/swipe-card/swipe-card.js
     type: module
 ```
 
