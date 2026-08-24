@@ -1,3 +1,15 @@
+## 6.0.2
+
+- Fix Swiper being constructed before its slide DOM exists: card creation is async (an extra async step when
+  loop is enabled, to build the two padding slides), but `_initialLoad` never waited for it before constructing
+  `new Swiper()`. `initialSlide` then silently had nothing to select and landed on index 0 - the wraparound
+  clone of the last card when looping - instead of `start_card`. Explains both: the card opening on whatever
+  card an `active_card` entity happened to already match instead of `start_card`, and not being able to swipe
+  backward until swiping through every other card first (dragging started from a corrupted boundary state).
+- `active_card` no longer applies on the very first render: the card always opens on `start_card`/`default_card`
+  regardless of what state its entities already happen to be in, and only reacts to genuine changes from that
+  point on.
+
 ## 6.0.1
 
 - Fix `parameters.loop: true`: the 6.0.0 fix stopped Swiper's own loop mode from getting stuck, but its

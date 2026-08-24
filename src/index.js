@@ -78,7 +78,10 @@ class SwipeCard extends LitElement {
         }
       });
     }
-    this._createCards();
+    // _initialLoad awaits this before constructing Swiper - see there for
+    // why (constructing against slide DOM that doesn't exist yet makes
+    // initialSlide silently a no-op).
+    this._cardsReady = this._createCards();
   }
 
   set hass(hass) {
@@ -95,28 +98,38 @@ class SwipeCard extends LitElement {
     this._maybeNavigateToActiveCard(hass);
   }
 
-  // Reactive navigation: if `active_card` rules are configured, slide to
-  // whichever rule's entity currently matches, or to `default_card` (falling
-  // back to `start_card`, then the first card) when none match. Runs on
-  // every hass update - same place hass is already forwarded to child cards,
-  // so it needs no extra lifecycle wiring and works regardless of whether
-  // this component's own render() happens to run on a given tick.
-  _maybeNavigateToActiveCard(hass) {
-    if (!hass || !this.swiper || !this._activeCardRules.length) {
-      return;
-    }
+  // Which card `active_card`'s rules currently resolve to: whichever rule's
+  // entity matches first, or `default_card` (falling back to `start_card`,
+  // then the first card) when none match. Pure computation, no navigation -
+  // see _maybeNavigateToActiveCard and _initialLoad for the two ways this
+  // gets used.
+  _computeActiveCardIndex(hass) {
     // +1 when loop padding is in play: index 0 is the wraparound clone of
     // the last card, so real card 1 actually lives at swiper index 1.
     const offset = this._loopEnabled ? 1 : 0;
-    let targetIndex = this._defaultCardIndex() + offset;
     for (const rule of this._activeCardRules) {
       const stateObj = hass.states[rule.entity];
       const wantState = rule.state !== undefined ? rule.state : "on";
       if (stateObj && stateObj.state === wantState) {
-        targetIndex = rule.index - 1 + offset;
-        break;
+        return rule.index - 1 + offset;
       }
     }
+    return this._defaultCardIndex() + offset;
+  }
+
+  // Reactive navigation: on every hass update (same place hass is already
+  // forwarded to child cards, so it needs no extra lifecycle wiring), slide
+  // to whatever _computeActiveCardIndex currently resolves to, if that's
+  // different from last time. Deliberately NOT called for the very first
+  // hass update after load - see _initialLoad, which seeds _lastActiveIndex
+  // silently instead so the card always starts at start_card/default_card
+  // regardless of whatever state active_card's entities already happen to
+  // be in, and only reacts to genuine changes from that point on.
+  _maybeNavigateToActiveCard(hass) {
+    if (!hass || !this.swiper || !this._activeCardRules.length) {
+      return;
+    }
+    const targetIndex = this._computeActiveCardIndex(hass);
     if (targetIndex !== this._lastActiveIndex) {
       this._lastActiveIndex = targetIndex;
       this.swiper.slideTo(targetIndex);
@@ -187,6 +200,18 @@ class SwipeCard extends LitElement {
     this._loaded = true;
 
     await this.updateComplete;
+    // Card creation is async (and, when loop is enabled, has an extra async
+    // step to build the two padding slides after the real cards resolve)
+    // and isn't guaranteed to have finished by the point above - the
+    // updateComplete there only waits for whatever Lit update was already
+    // pending, not one triggered by _cards being reassigned later. Without
+    // this, Swiper can end up constructed against slide DOM that doesn't
+    // exist yet, silently making `initialSlide` a no-op and landing on
+    // index 0 instead.
+    if (this._cardsReady) {
+      await this._cardsReady;
+      await this.updateComplete;
+    }
 
     if ("pagination" in this._parameters) {
       if (this._parameters.pagination === null) {
@@ -266,10 +291,14 @@ class SwipeCard extends LitElement {
       });
     }
 
-    // hass may have already arrived before the swiper instance existed;
-    // run one navigation pass now that it's ready.
-    if (this._hass) {
-      this._maybeNavigateToActiveCard(this._hass);
+    // Deliberately not navigating here even if hass already arrived before
+    // the swiper existed: the card should always open on start_card/
+    // default_card, not immediately jump to wherever active_card's entities
+    // already happen to be. Seed the change-detection baseline silently
+    // instead, so the *next* real change is what triggers navigation, not
+    // the current already-in-place state.
+    if (this._hass && this._activeCardRules.length) {
+      this._lastActiveIndex = this._computeActiveCardIndex(this._hass);
     }
 
     if (this._config.reset_after) {
@@ -393,7 +422,7 @@ class SwipeCard extends LitElement {
 
 customElements.define("swipe-card", SwipeCard);
 console.info(
-  "%c   SWIPE-CARD  \n%c Version 6.0.1 ",
+  "%c   SWIPE-CARD  \n%c Version 6.0.2 ",
   "color: orange; font-weight: bold; background: black",
   "color: white; font-weight: bold; background: dimgray"
 );

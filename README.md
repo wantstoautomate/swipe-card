@@ -78,3 +78,7 @@ Lets the swiper reactively navigate itself based on entity state, instead of onl
 
 Rules are checked in order on every `hass` update; the first matching rule's card is shown. `index` uses the
 same 1-based numbering as `start_card`.
+
+The card always opens on `start_card`/`default_card`, regardless of what state its entities already happen to
+be in - `active_card` only reacts to changes that happen *after* load, not the state already in place when the
+dashboard is opened.
