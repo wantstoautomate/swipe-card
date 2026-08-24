@@ -38,11 +38,10 @@ And add a card with type `custom:swipe-card`:
 | Name | Type | Default | Supported options | Description |
 | ---- | ---- | ------- | ----------------- | ----------- |
 | `card_width` | string | | Any css option that fits in the `width` css value | Will force the width of the swiper container |
-| `start_card` | number | | Any number | The card being displayed at the beginning |
+| `start_card` | number | `1` | Any number | The card shown at load, and whatever `active_card` falls back to - see below |
 | `parameters` | object | | Any parameter from [here](https://swiperjs.com/swiper-api#parameters) | Configuration of the swiper. Note: `parameters.loop` is handled specially, see below. |
 | `reset_after` | number | | Any number | Will reset the swiper to the `start_card` if defined or the first card after `reset_after` seconds |
-| `active_card` | list | | List of `{entity, state, index}` | Reactively slide to a card when an entity matches a state - see below |
-| `default_card` | number | | Any number | Card to show when no `active_card` rule matches (falls back to `start_card`, then the first card) |
+| `active_card` | object | | `{rules, fallback_card, on_load}` | Reactively slide to a card when an entity matches a state - see below |
 
 ### `parameters.loop`
 
@@ -60,25 +59,35 @@ at the boundary giving away that it's about to wrap), and `slideNext()`/`slidePr
 ### `active_card`
 
 Lets the swiper reactively navigate itself based on entity state, instead of only supporting a static
-`start_card` set once at load:
+`start_card` set once at load. Everything specific to this feature lives under the one key:
 
 ```yaml
 - type: custom:swipe-card
+  start_card: 1
   active_card:
-    - entity: input_boolean.bedroom_active
-      state: "on"      # optional, defaults to "on"
-      index: 1
-    - entity: input_boolean.study_active
-      index: 2
-  default_card: 1        # shown when no rule matches; falls back to start_card, then 1
+    rules:
+      - entity: input_boolean.bedroom_active
+        state: "on"        # optional, defaults to "on"
+        index: 1
+      - entity: input_boolean.study_active
+        index: 2
+    fallback_card: 1        # shown when no rule matches; falls back to start_card, then 1, if omitted
+    on_load: true            # optional, default true - see below
   cards:
-    - ...                # card 1 (bedroom)
-    - ...                # card 2 (study)
+    - ...                    # card 1 (bedroom)
+    - ...                    # card 2 (study)
 ```
 
-Rules are checked in order on every `hass` update; the first matching rule's card is shown. `index` uses the
-same 1-based numbering as `start_card`.
+- **`rules`** - checked in order on every `hass` update; the first matching rule's card is shown. `index` uses
+  the same 1-based numbering as `start_card`.
+- **`fallback_card`** - shown when no rule currently matches. Falls back to `start_card` (then card 1) if
+  omitted.
+- **`on_load`** - whether `active_card` applies to the very first render, not just changes afterward:
+  - `true` (default): the card opens already matching current entity state, exactly like any later change would.
+  - `false`: the card always opens on `start_card` regardless of what state its entities already happen to be
+    in, and `active_card` only starts reacting once something changes *after* that. Useful when a rule should
+    mean "this just happened" (e.g. jump to whichever zone just triggered an alert) rather than "this is the
+    current state" - you don't want a page reload to jump straight to old news.
 
-The card always opens on `start_card`/`default_card`, regardless of what state its entities already happen to
-be in - `active_card` only reacts to changes that happen *after* load, not the state already in place when the
-dashboard is opened.
+With no `active_card` configured at all, the card always just shows `start_card`, on load and otherwise -
+there's nothing to react to.

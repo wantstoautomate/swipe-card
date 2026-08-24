@@ -1,3 +1,17 @@
+## 6.1.0
+
+- **Breaking:** `active_card` is now an object instead of a bare list, grouping everything specific to this
+  feature under one key instead of scattering it across top-level config:
+  - `active_card.rules` - the list of `{entity, state, index}` rules (was the bare `active_card` list before).
+  - `default_card` is renamed to `active_card.fallback_card` ("default" was ambiguous with `start_card`, which
+    is also a kind of default - this one is specifically active_card's own fallback).
+  - `active_card.on_load` (new, default `true`) - whether `active_card` applies to the very first render, not
+    just changes afterward. `false` restores 6.0.2's behavior (always open on `start_card`, only react to
+    changes after load) as an explicit opt-in rather than the only option; `true` (the new default) means the
+    card opens already matching current entity state, which is what most setups actually want, given a change
+    after load already worked that way.
+  - See the README for the full example and the two use cases `on_load` covers.
+
 ## 6.0.2
 
 - Fix Swiper being constructed before its slide DOM exists: card creation is async (an extra async step when

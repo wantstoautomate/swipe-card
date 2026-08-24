@@ -65,7 +65,17 @@ class SwipeCard extends LitElement {
     this._config = config;
     this._parameters = deepcopy(this._config.parameters) || {};
     this._cards = [];
-    this._activeCardRules = config.active_card || [];
+    // active_card is an object (not a bare list) so everything specific to
+    // this feature - the rules, its own fallback, whether it applies on the
+    // very first render - lives in one namespace rather than scattered
+    // across top-level keys. See _computeActiveCardIndex/_initialLoad for
+    // how fallback_card/on_load are actually used.
+    this._activeCard = config.active_card || null;
+    this._activeCardRules = (this._activeCard && this._activeCard.rules) || [];
+    this._activeCardOnLoad =
+      this._activeCard && "on_load" in this._activeCard
+        ? this._activeCard.on_load
+        : true;
     this._lastActiveIndex = null;
     // See _createCards/_initialLoad for why loop:true doesn't pass through
     // to Swiper directly - this flag needs to be known before cards are
@@ -99,10 +109,11 @@ class SwipeCard extends LitElement {
   }
 
   // Which card `active_card`'s rules currently resolve to: whichever rule's
-  // entity matches first, or `default_card` (falling back to `start_card`,
-  // then the first card) when none match. Pure computation, no navigation -
-  // see _maybeNavigateToActiveCard and _initialLoad for the two ways this
-  // gets used.
+  // entity matches first, or `active_card.fallback_card` (falling back to
+  // `start_card`, then the first card) when none match. Pure computation,
+  // no navigation - used both for ongoing reactive navigation and (when
+  // on_load is true) the initial one, see _maybeNavigateToActiveCard and
+  // _initialLoad.
   _computeActiveCardIndex(hass) {
     // +1 when loop padding is in play: index 0 is the wraparound clone of
     // the last card, so real card 1 actually lives at swiper index 1.
@@ -114,17 +125,22 @@ class SwipeCard extends LitElement {
         return rule.index - 1 + offset;
       }
     }
-    return this._defaultCardIndex() + offset;
+    const fallbackCard =
+      this._activeCard && "fallback_card" in this._activeCard
+        ? this._activeCard.fallback_card
+        : null;
+    return (
+      (fallbackCard !== null ? fallbackCard - 1 : this._baseCardIndex()) +
+      offset
+    );
   }
 
   // Reactive navigation: on every hass update (same place hass is already
   // forwarded to child cards, so it needs no extra lifecycle wiring), slide
   // to whatever _computeActiveCardIndex currently resolves to, if that's
-  // different from last time. Deliberately NOT called for the very first
-  // hass update after load - see _initialLoad, which seeds _lastActiveIndex
-  // silently instead so the card always starts at start_card/default_card
-  // regardless of whatever state active_card's entities already happen to
-  // be in, and only reacts to genuine changes from that point on.
+  // different from last time. This runs for every change regardless of
+  // on_load - on_load only gates whether the very first call (from
+  // _initialLoad) is allowed to navigate, or only seeds _lastActiveIndex.
   _maybeNavigateToActiveCard(hass) {
     if (!hass || !this.swiper || !this._activeCardRules.length) {
       return;
@@ -136,10 +152,12 @@ class SwipeCard extends LitElement {
     }
   }
 
-  _defaultCardIndex() {
-    if ("default_card" in this._config) {
-      return this._config.default_card - 1;
-    }
+  // The literal `start_card` position - deliberately NOT aware of
+  // active_card at all. Used for the actual initial slide, the reset_after
+  // target, and as what "no active_card configured" / "on_load: false"
+  // fall back to. active_card's own fallback (fallback_card) is layered on
+  // top of this in _computeActiveCardIndex, not folded into it.
+  _baseCardIndex() {
     if ("start_card" in this._config) {
       return this._config.start_card - 1;
     }
@@ -241,10 +259,12 @@ class SwipeCard extends LitElement {
         this.shadowRoot.querySelector(".swiper-scrollbar");
     }
 
-    if ("start_card" in this._config) {
-      this._parameters.initialSlide =
-        this._config.start_card - 1 + (this._loopEnabled ? 1 : 0);
-    }
+    // Always set explicitly now (defaulting to card 1 via _baseCardIndex),
+    // not only when start_card is configured: when loop padding is in play,
+    // leaving this unset would let Swiper default to its own raw index 0 -
+    // the wraparound clone, not card 1.
+    this._parameters.initialSlide =
+      this._baseCardIndex() + (this._loopEnabled ? 1 : 0);
 
     // Swiper's own `loop: true` wraps around by cloneNode()-ing slide DOM
     // for padding. That breaks when a slide's content is a custom element
@@ -291,14 +311,19 @@ class SwipeCard extends LitElement {
       });
     }
 
-    // Deliberately not navigating here even if hass already arrived before
-    // the swiper existed: the card should always open on start_card/
-    // default_card, not immediately jump to wherever active_card's entities
-    // already happen to be. Seed the change-detection baseline silently
-    // instead, so the *next* real change is what triggers navigation, not
-    // the current already-in-place state.
+    // active_card.on_load (default true) decides whether active_card
+    // applies to this very first render: true navigates normally (matching
+    // current entity state, or fallback_card/start_card if nothing matches);
+    // false leaves the card on start_card (already set via initialSlide
+    // above) and only seeds the change-detection baseline silently, so the
+    // card opens on start_card unconditionally and the *next* real change is
+    // what triggers navigation - not the state already in place on load.
     if (this._hass && this._activeCardRules.length) {
-      this._lastActiveIndex = this._computeActiveCardIndex(this._hass);
+      if (this._activeCardOnLoad) {
+        this._maybeNavigateToActiveCard(this._hass);
+      } else {
+        this._lastActiveIndex = this._computeActiveCardIndex(this._hass);
+      }
     }
 
     if (this._config.reset_after) {
@@ -422,7 +447,7 @@ class SwipeCard extends LitElement {
 
 customElements.define("swipe-card", SwipeCard);
 console.info(
-  "%c   SWIPE-CARD  \n%c Version 6.0.2 ",
+  "%c   SWIPE-CARD  \n%c Version 6.1.0 ",
   "color: orange; font-weight: bold; background: black",
   "color: white; font-weight: bold; background: dimgray"
 );
